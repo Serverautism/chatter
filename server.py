@@ -4,6 +4,7 @@ import pygame
 import time
 import random
 import datetime
+import json
 
 
 # message format: type:content,content:end
@@ -60,7 +61,8 @@ class Server:
         # network
         self.addresses = {}
         self.clients = {}
-        self.admins = {}
+        with open('data/saves/admins.json', 'r') as f:
+            self.admins = json.load(f)
 
         self.host = ''
         self.port = 25565
@@ -104,9 +106,14 @@ class Server:
 
             pygame.display.update()
 
+        self.broadcast(self.build_message(self.announcement_type, 'Server stopped'))
+
         for sock in self.clients:
             sock.close()
         self.server.close()
+
+        with open('data/saves/admins.json', 'w') as f:
+            json.dump(self.admins, f, indent=4)
 
     def handle_input(self):
         for event in pygame.event.get():
@@ -178,7 +185,7 @@ class Server:
         client.send(bytes(self.build_message(self.announcement_type, f'Welcome {name}! Send {{quit}} to exit.'), 'utf8'))
 
         if self.addresses[client][0] in self.admins:
-            client[0].send(bytes(self.build_message(self.announcement_type, 'you are now an admin'), 'utf8'))
+            client.send(bytes(self.build_message(self.announcement_type, 'you are now an admin'), 'utf8'))
 
         self.broadcast(self.build_message(self.announcement_type, f'{name}  joined!'))
         self.clients[client] = name
@@ -266,53 +273,104 @@ class Server:
         elif command[0] == self.commands[1][0]:
             if len(command) == 2:
                 found = False
-                for client in self.clients.items():
-                    if client[1] == command[1]:
+                for c in self.clients.items():
+                    if c[1] == command[1]:
                         is_admin = False
-                        if self.addresses[client[0]][0] in self.admins:
+                        if self.addresses[c[0]][0] in self.admins:
                             is_admin = True
-                        text = f'address: {self.addresses[client[0]]}, is admin: {is_admin}'
-                        self.log(text, self.user_info_event)
+                        text = f'address: {self.addresses[c[0]]}, is admin: {is_admin}'
+                        if client is None:
+                            self.log(text, self.user_info_event)
+                        else:
+                            self.log(f'{self.clients[client]} used: {raw_command}')
+                            client.send(bytes(self.build_message(self.announcement_type, text), 'utf8'))
                         found = True
                 if not found:
-                    self.log('no user with this name found', self.error_event)
+                    if client is None:
+                        self.log('no user with this name found', self.error_event)
+                    else:
+                        client.send(bytes(self.build_message(self.announcement_type, self.error_event + 'no user with this name found'), 'utf8'))
             else:
-                self.log(self.commands[1][1], self.usage_error_event)
+                if client is None:
+                    self.log(self.commands[1][1], self.usage_error_event)
+                else:
+                    client.send(bytes(self.build_message(self.announcement_type, self.error_event + self.commands[1][1]), 'utf8'))
 
         # set op
         elif command[0] == self.commands[2][0]:
             if len(command) == 2:
                 found = False
-                for client in self.clients.items():
-                    if client[1] == command[1]:
-                        self.log(f'added {command[1]} to the admins')
-                        ip = self.addresses[client[0]][0]
-                        self.admins[ip] = 1
-                        client[0].send(bytes(self.build_message(self.announcement_type, 'you are now an admin'), 'utf8'))
+                for c in self.clients.items():
+                    if c[1] == command[1]:
+                        ip = self.addresses[c[0]][0]
+                        if ip in self.admins:
+                            if self.admins[ip] == 1:
+                                if client is None:
+                                    self.log(f'{command[1]} is already an admin')
+                                else:
+                                    self.log(f'{self.clients[client]} used: {raw_command}')
+                                    client.send(bytes(self.build_message(self.announcement_type, f'{command[1]} is already an admin'), 'utf8'))
+                            else:
+                                self.admins[ip] = 1
+                                c[0].send(bytes(self.build_message(self.announcement_type, 'you are now an admin'), 'utf8'))
+                                if client is None:
+                                    self.log(f'added {command[1]} back to the admins')
+                                else:
+                                    self.log(f'{self.clients[client]} used: {raw_command}')
+                                    client.send(bytes(self.build_message(self.announcement_type, f'added {command[1]} back to the admins'), 'utf8'))
+                        else:
+                            self.admins[ip] = 1
+                            c[0].send(bytes(self.build_message(self.announcement_type, 'you are now an admin'), 'utf8'))
+                            if client is None:
+                                self.log(f'added {command[1]} to the admins')
+                            else:
+                                self.log(f'{self.clients[client]} used: {raw_command}')
+                                client.send(bytes(self.build_message(self.announcement_type, f'added {command[1]} to the admins'), 'utf8'))
                         found = True
                 if not found:
-                    self.log('no user with this name found', self.error_event)
+                    if client is None:
+                        self.log('no user with this name found', self.error_event)
+                    else:
+                        client.send(bytes(self.build_message(self.announcement_type, self.error_event + 'no user with this name found'), 'utf8'))
             else:
-                self.log(self.commands[1][1], self.usage_error_event)
+                if client is None:
+                    self.log(self.commands[2][1], self.usage_error_event)
+                else:
+                    client.send(bytes(self.build_message(self.announcement_type, self.error_event + self.commands[2][1]), 'utf8'))
 
         # help
         elif command[0] == self.commands[3][0]:
             if len(command) == 1:
-                to_log = []
-                for c in self.commands:
-                    to_log.append(f'command: {c[0]}, usage: {c[1]}')
-                self.log(to_log)
+                if client is None:
+                    to_log = []
+                    for c in self.commands:
+                        to_log.append(f'command: {c[0]}, usage: {c[1]}')
+                    self.log(to_log)
+                else:
+                    for c in self.commands:
+                        client.send(bytes(self.build_message(self.announcement_type, f'command: {c[0]}, usage: {c[1]}'), 'utf8'))
+                    self.log(f'{self.clients[client]} used: {raw_command}')
             elif len(command) == 2:
                 found = False
                 for c in self.commands:
                     if command[1] == c[0]:
-                        self.log(f'command: {c[0]}, usage: {c[1]}')
+                        if client is None:
+                            self.log(f'command: {c[0]}, usage: {c[1]}')
+                        else:
+                            client.send(bytes(self.build_message(self.announcement_type, f'command: {c[0]}, usage: {c[1]}'), 'utf8'))
+                            self.log(f'{self.clients[client]} used: {raw_command}')
                         found = True
 
                 if not found:
-                    self.log('no command with this name found', self.error_event)
+                    if client is None:
+                        self.log('no command with this name found', self.error_event)
+                    else:
+                        client.send(bytes(self.build_message(self.announcement_type, self.error_event + 'no command with this name found'), 'utf8'))
             else:
-                self.log(self.commands[1][1], self.usage_error_event)
+                if client is None:
+                    self.log(self.commands[3][1], self.usage_error_event)
+                else:
+                    client.send(bytes(self.build_message(self.announcement_type, self.error_event + self.commands[3][1]), 'utf8'))
 
         # stop
         elif command[0] == self.commands[4][0]:
@@ -325,7 +383,10 @@ class Server:
                     self.log(f'Server will shutdown in {self.shutdown_timer} seconds')
                     self.broadcast(self.build_message(self.announcement_type, f'Server will shutdown in {self.shutdown_timer} seconds'))
                 else:
-                    self.log(self.commands[1][1], self.usage_error_event)
+                    if client is None:
+                        self.log(self.commands[4][1], self.usage_error_event)
+                    else:
+                        client.send(bytes(self.build_message(self.announcement_type, self.error_event + self.commands[4][1]), 'utf8'))
             else:
                 self.log(self.commands[1][1], self.usage_error_event)
 

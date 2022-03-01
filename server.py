@@ -185,7 +185,7 @@ class Server:
         client.send(bytes(self.build_message(self.announcement_type, f'Welcome {name}! Send {{quit}} to exit.'), 'utf8'))
 
         if self.addresses[client][0] in self.admins:
-            client.send(bytes(self.build_message(self.announcement_type, 'you are now an admin'), 'utf8'))
+            client.send(bytes(self.build_message(self.announcement_type, 'you are an admin'), 'utf8'))
 
         self.broadcast(self.build_message(self.announcement_type, f'{name}  joined!'))
         self.clients[client] = name
